@@ -3,26 +3,83 @@
     "name": "MyTestApp",
     "slug": "MyTestApp",
     "version": "1.0.0",
-    "platforms": [
-      "ios",
-      "android",
-      "web"
-    ],
-    "android": {
-      "package": "com.axy4321.mytestapp"
-    },
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
     "scheme": "mytestapp",
+    "userInterfaceStyle": "automatic",
     "experimental": {
       "newArchEnabled": true
+    },
+    "splash": {
+      "image": "./assets/images/splash-icon.png"
+    },
+    "ios": {
+      "deploymentTarget": "15.5",
+      "supportsTablet": false,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "whatsapp",
+          "whatsappbusiness"
+        ]
+      },
+      "bundleIdentifier": "com.axy4321.mytestapp"
+    },
+    "android": {
+      "package": "com.axy4321.mytestapp",
+      "largeHeap": true
+    },
+    "plugins": [
+      "./plugins/withWhatsAppQueries",
+      "./plugins/withShareIntentFilters",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.5",
+            "supportsTablet": false
+          },
+          "android": {
+            "flavorDimensions": [
+              "store"
+            ],
+            "productFlavors": {
+              "play": {},
+              "amazon": {}
+            },
+            "missingDimensionStrategy": {
+              "store": "play"
+            }
+          }
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsFileWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "text/*",
+            "application/zip"
+          ]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
     },
     "extra": {
       "eas": {
         "projectId": "cdddd2bc-717c-4565-8878-119e2a7d8c28"
+      },
+
+      "router": {
+        "origin": false
       }
     },
-    "ios": {
-      "deploymentTarget": "15.5",
-      "bundleIdentifier": "com.axy4321.mytestapp"
-    }
+    "owner": "axy4321"
   }
 }
