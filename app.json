@@ -7,6 +7,22 @@
       "ios",
       "android",
       "web"
-    ]
+    ],
+    "android": {
+      "package": "com.axy4321.mytestapp"
+    },
+    "scheme": "mytestapp",
+    "experimental": {
+      "newArchEnabled": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "cdddd2bc-717c-4565-8878-119e2a7d8c28"
+      }
+    },
+    "ios": {
+      "deploymentTarget": "15.5",
+      "bundleIdentifier": "com.axy4321.mytestapp"
+    }
   }
 }
