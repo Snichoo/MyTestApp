@@ -9,9 +9,7 @@
     "experimental": {
       "newArchEnabled": true
     },
-    "splash": {
-      "image": "./assets/images/splash-icon.png"
-    },
+    "assetBundlePatterns": [],
     "ios": {
       "deploymentTarget": "15.5",
       "supportsTablet": false,
@@ -26,6 +24,10 @@
     "android": {
       "package": "com.axy4321.mytestapp",
       "largeHeap": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
     },
     "plugins": [
       "./plugins/withWhatsAppQueries",
@@ -74,7 +76,6 @@
       "eas": {
         "projectId": "cdddd2bc-717c-4565-8878-119e2a7d8c28"
       },
-
       "router": {
         "origin": false
       }
