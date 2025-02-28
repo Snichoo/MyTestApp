@@ -1,5 +1,4 @@
-// File: app/chat-import.tsx
-
+// === C:\Users\samsn\OneDrive\Desktop\ChatRecapApp\ChatWrappedAI\app\chat-import.tsx ===
 import React, { useEffect, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -10,43 +9,6 @@ import {
   Alert,
 } from "react-native";
 import * as FileSystem from "expo-file-system";
-import JSZip from "jszip";
-
-/** 
- * Fallback-based helper: fetch file:// URI -> blob -> ArrayBuffer
- * with improved FileReader error handling
- */
-async function fetchLocalFileAsArrayBuffer(fileUri: string): Promise<ArrayBuffer> {
-  let finalUri = fileUri;
-  if (!finalUri.startsWith("file://")) {
-    finalUri = "file://" + finalUri;
-  }
-
-  const response = await fetch(finalUri);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch local file: ${finalUri} (status: ${response.status})`);
-  }
-  const blob = await response.blob();
-
-  if (typeof blob.arrayBuffer === "function") {
-    return blob.arrayBuffer();
-  }
-
-  return new Promise<ArrayBuffer>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-
-    reader.onerror = (ev) => {
-      if (reader.error) {
-        return reject(reader.error);
-      }
-      reject(new Error(`FileReader error event: ${JSON.stringify(ev)}`));
-    };
-
-    reader.readAsArrayBuffer(blob);
-  });
-}
 
 export default function ChatImportScreen() {
   const { uri } = useLocalSearchParams<{ uri?: string }>();
@@ -55,68 +17,66 @@ export default function ChatImportScreen() {
 
   useEffect(() => {
     if (!uri) {
-      setStatus("No .zip URI provided.");
+      setStatus("No URI provided.");
       return;
     }
-    // Process the .zip from the share
-    listZipContents(uri);
+
+    checkSharedPath(uri);
   }, [uri]);
 
-  async function listZipContents(zipUri: string) {
+  async function checkSharedPath(sharedUri: string) {
     try {
-      setStatus(`Received .zip from: ${zipUri}`);
+      setStatus(`Received share from: ${sharedUri}`);
 
-      // 1) Copy the zip file from the provided URI to local cache
-      const localZipPath = FileSystem.cacheDirectory + "tempWhatsApp.zip";
-      await FileSystem.copyAsync({ from: zipUri, to: localZipPath });
-      setStatus(`Copied to: ${localZipPath} - Now loading zip in memory...`);
-
-      // 2) Read the .zip into an ArrayBuffer
-      const arrayBuffer = await fetchLocalFileAsArrayBuffer(localZipPath);
-      setStatus("Parsing zip structure in memory...");
-      const zip = await JSZip.loadAsync(arrayBuffer);
-
-      // 3) List all entries
-      const zipEntries = Object.keys(zip.files);
-      setStatus(`Found ${zipEntries.length} entries in the zip.`);
-
-      // 4) Check for Instagram export structure
-      const inboxIndicator = "/your_instagram_activity/messages/inbox";
-      const foundInstagram = zipEntries.some(fp => fp.toLowerCase().includes(inboxIndicator));
-      if (foundInstagram) {
-        setStatus("Detected Instagram export. Navigating to instagram-select...");
-        router.push({
-          pathname: "/instagram-select",
-          params: { zipBase64: "NOT_USED_ANYMORE" },
-        });
+      const info = await FileSystem.getInfoAsync(sharedUri);
+      if (!info.exists) {
+        setStatus("File or folder does not exist: " + sharedUri);
         return;
       }
 
-      // 5) Otherwise, try to find a .txt
-      const txtEntry = zipEntries.find((fp) => fp.toLowerCase().endsWith(".txt"));
-      if (!txtEntry) {
-        setStatus("No .txt found, and not an Instagram export.");
-        return;
-      }
+      if (info.isDirectory) {
+        // 1) Check if it looks like an Instagram export
+        const instaPath = `${sharedUri}/your_instagram_activity/messages/inbox`;
+        const instaInfo = await FileSystem.getInfoAsync(instaPath);
+        if (instaInfo.exists && instaInfo.isDirectory) {
+          setStatus("Detected Instagram export folder. Navigating to instagram-select...");
+          router.push({
+            pathname: "/instagram-select",
+            params: { baseFolder: sharedUri + "/your_instagram_activity" },
+          });
+          return;
+        }
 
-      setStatus(`Found a .txt file at: ${txtEntry}`);
-      // If needed, you can further read/convert the .txt or navigate to analysis, etc.
-      // For example:
-      // const fileObj = zip.file(txtEntry);
-      // const txtContent = await fileObj.async("string");
-      // Then write it to a local path and navigate to analysis...
-      
-      // Example just to show you can navigate:
-      /*
-      const localTxtPath = FileSystem.cacheDirectory + "mySharedTxt.txt";
-      await FileSystem.writeAsStringAsync(localTxtPath, txtContent, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      router.push({
-        pathname: "/(tabs)/analysis",
-        params: { fileUri: localTxtPath + "?ts=" + Date.now() },
-      });
-      */
+        // 2) Check if it looks like a Facebook export
+        const fbPath = `${sharedUri}/your_facebook_activity/messages/inbox`;
+        const fbInfo = await FileSystem.getInfoAsync(fbPath);
+        if (fbInfo.exists && fbInfo.isDirectory) {
+          setStatus("Detected Facebook export folder. Navigating to instagram-select...");
+          router.push({
+            pathname: "/instagram-select",
+            params: { baseFolder: sharedUri + "/your_facebook_activity" },
+          });
+          return;
+        }
+
+        // Otherwise, it's just some folder that doesn't match either structure
+        setStatus(
+          "Directory provided, but no Instagram/Facebook structure found. Provide a .txt file or an export folder."
+        );
+      } else {
+        // 3) If it's a file, see if it ends with .txt
+        if (sharedUri.toLowerCase().endsWith(".txt")) {
+          setStatus(`Found a .txt file: ${sharedUri}. Navigating to analysis...`);
+          router.push({
+            pathname: "/(tabs)/analysis",
+            params: {
+              fileUri: sharedUri + "?ts=" + Date.now(),
+            },
+          });
+        } else {
+          setStatus("Not a .txt file, and not an Instagram/Facebook export folder.");
+        }
+      }
     } catch (error: any) {
       setStatus(`Error: ${error.message}`);
     }
@@ -126,8 +86,6 @@ export default function ChatImportScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.header}>Chat Import</Text>
       <Text style={styles.status}>{status}</Text>
-
-      {/* Demo button - you can remove or replace as needed */}
       <TouchableOpacity
         style={styles.demoButton}
         onPress={() => Alert.alert("Demo", "You can do something else here!")}

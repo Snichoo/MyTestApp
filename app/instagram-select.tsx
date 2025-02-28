@@ -1,3 +1,4 @@
+// === C:\Users\samsn\OneDrive\Desktop\ChatRecapApp\ChatWrappedAI\app\instagram-select.tsx ===
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -12,105 +13,67 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system";
-import JSZip from "jszip";
-
-/** 
- * Fallback-based helper: fetch file:// URI -> blob -> ArrayBuffer
- * with improved FileReader error handling
- */
-async function fetchLocalFileAsArrayBuffer(fileUri: string): Promise<ArrayBuffer> {
-  let finalUri = fileUri;
-  if (!finalUri.startsWith("file://")) {
-    finalUri = "file://" + finalUri;
-  }
-
-  const response = await fetch(finalUri);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch local file: ${finalUri} (status: ${response.status})`);
-  }
-  const blob = await response.blob();
-
-  if (typeof blob.arrayBuffer === "function") {
-    return blob.arrayBuffer();
-  }
-
-  return new Promise<ArrayBuffer>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-
-    reader.onerror = (ev) => {
-      if (reader.error) {
-        return reject(reader.error);
-      }
-      reject(new Error(`FileReader error event: ${JSON.stringify(ev)}`));
-    };
-
-    reader.readAsArrayBuffer(blob);
-  });
-}
 
 interface ConversationFolder {
-  folderName: string;   // e.g. "sam_12345"
-  displayName: string;  // e.g. "sam"
+  folderName: string; // e.g. "sam_12345"
+  displayName: string; // e.g. "sam"
 }
 
 export default function InstagramSelectScreen() {
   const router = useRouter();
-  const { zipBase64 } = useLocalSearchParams<{ zipBase64?: string }>();
-
-  // We'll assume the local zip is stored in the same place as earlier:
-  const [localZipPath] = useState(FileSystem.cacheDirectory + "sharedFile");
+  const { baseFolder } = useLocalSearchParams<{ baseFolder?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [zipInstance, setZipInstance] = useState<JSZip | null>(null);
 
   useEffect(() => {
-    loadInboxSubfolders();
-  }, []);
+    if (!baseFolder) {
+      setLoading(false);
+      Alert.alert("Error", "No base folder provided to instagram-select.");
+      return;
+    }
+    loadInboxSubfolders(baseFolder);
+  }, [baseFolder]);
 
-  async function loadInboxSubfolders() {
+  /**
+   * Reads subfolders in {baseFolder}/messages/inbox.
+   * Each subfolder typically looks like "sam_12345", "someone_9999", etc.
+   */
+  async function loadInboxSubfolders(rootDir: string) {
     try {
-      const zipBuffer = await fetchLocalFileAsArrayBuffer(localZipPath);
-      const zip = await JSZip.loadAsync(zipBuffer);
+      // The actual "inbox" path is:
+      const inboxPath = `${rootDir}/messages/inbox`;
+      console.log("instagram-select loadInboxSubfolders. Checking =>", inboxPath);
 
-      const inboxPath = "your_instagram_activity/messages/inbox"; 
-      const folderNames = new Set<string>();
+      // Make sure it exists
+      const info = await FileSystem.getInfoAsync(inboxPath);
+      if (!info.exists || !info.isDirectory) {
+        throw new Error(`messages/inbox not found at: ${inboxPath}`);
+      }
 
-      // Collect possible subfolder names
-      Object.keys(zip.files).forEach((fp) => {
-        const lowerFp = fp.toLowerCase();
-        const lowerInbox = inboxPath.toLowerCase();
-
-        const indexOfInbox = lowerFp.indexOf(lowerInbox);
-        if (indexOfInbox < 0) return;
-
-        const afterInbox = fp.substring(indexOfInbox + inboxPath.length + 1);
-        if (!afterInbox) return;
-
-        const slashPos = afterInbox.indexOf("/");
-        const possibleFolderName = (slashPos >= 0)
-          ? afterInbox.substring(0, slashPos)
-          : afterInbox;
-
-        if (possibleFolderName && !possibleFolderName.includes(".")) {
-          folderNames.add(possibleFolderName);
-        }
-      });
-
+      // Now read the subfolder names
+      const items = await FileSystem.readDirectoryAsync(inboxPath);
+      console.log("Subfolders in inbox =>", items);
+      
       const out: ConversationFolder[] = [];
-      folderNames.forEach((f) => {
-        const display = f.replace(/_[0-9]+$/, "");
-        out.push({ folderName: f, displayName: display });
-      });
+      for (const item of items) {
+        const fullPath = `${inboxPath}/${item}`;
+        const folderInfo = await FileSystem.getInfoAsync(fullPath);
+        if (folderInfo.isDirectory) {
+          // e.g. "sam_12345"
+          // let's guess a display name
+          const display = item.replace(/_[0-9]+$/, "");
+          out.push({ folderName: item, displayName: display });
+        }
+      }
 
+      // Sort by displayName
+      out.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setConversationFolders(out);
-      setZipInstance(zip);
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to parse subfolders from zip.");
+    } catch (err: any) {
+      console.error("Error loading inbox subfolders:", err);
+      Alert.alert("Error", err.message || "Failed to list subfolders in messages/inbox.");
     } finally {
       setLoading(false);
     }
@@ -122,12 +85,12 @@ export default function InstagramSelectScreen() {
 
   async function handleConfirm() {
     try {
-      if (selectedIndex === null) {
+      if (selectedIndex == null) {
         Alert.alert("Please select a conversation folder first.");
         return;
       }
-      if (!zipInstance) {
-        Alert.alert("Missing zip data", "No JSZip instance loaded.");
+      if (!baseFolder) {
+        Alert.alert("Error", "Missing baseFolder param.");
         return;
       }
 
@@ -136,7 +99,7 @@ export default function InstagramSelectScreen() {
       const { folderName } = chosen;
 
       // Convert subfolder => .txt
-      const txtPath = await convertInstagramJsonToTxt(zipInstance, folderName);
+      const txtPath = await convertInstagramJsonFolderToTxt(baseFolder, folderName);
 
       // Navigate to analysis
       router.push({
@@ -194,51 +157,89 @@ export default function InstagramSelectScreen() {
   );
 }
 
-/** Convert subfolder => .txt, used on confirm. */
-async function convertInstagramJsonToTxt(zip: JSZip, folderName: string): Promise<string> {
-  const allFilePaths = Object.keys(zip.files);
-  const prefix = `your_instagram_activity/messages/inbox/${folderName}/`;
-  const jsonFiles: string[] = allFilePaths.filter((fp) => {
-    const lower = fp.toLowerCase();
-    if (!lower.startsWith(prefix.toLowerCase())) return false;
-    return lower.endsWith(".json") && lower.includes("message_");
+/**
+ * Reads all message_*.json in the specified subfolder, merges them into .txt,
+ * and returns that .txt path.
+ */
+async function convertInstagramJsonFolderToTxt(
+  baseFolder: string,
+  subFolder: string
+): Promise<string> {
+  // The path to the chosen conversation subfolder:
+  // e.g. baseFolder/messages/inbox/sam_12345
+  const convoFolderPath = `${baseFolder}/messages/inbox/${subFolder}`;
+  const dirItems = await FileSystem.readDirectoryAsync(convoFolderPath);
+
+  // Filter out "message_*.json"
+  const jsonFiles = dirItems.filter((f) => {
+    const lower = f.toLowerCase();
+    return lower.startsWith("message_") && lower.endsWith(".json");
   });
 
   if (jsonFiles.length === 0) {
-    throw new Error(`No message_*.json found in subfolder: ${folderName}`);
+    throw new Error(`No message_*.json found in subfolder: ${subFolder}`);
   }
 
-  let allMessages: any[] = [];
-  for (const relativePath of jsonFiles) {
-    const fileObj = zip.file(relativePath);
-    if (!fileObj) continue;
-    const fileStr = await fileObj.async("string");
+  let allMessages: Array<{
+    sender: string;
+    content: string;
+    timestampMs: number;
+  }> = [];
+
+  for (const fileName of jsonFiles) {
+    const fullPath = `${convoFolderPath}/${fileName}`;
+    const fileStr = await FileSystem.readAsStringAsync(fullPath, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
     const parsed = JSON.parse(fileStr);
 
     const arr = parsed.messages || [];
     for (const m of arr) {
+      // Safely handle sender (sometimes sender_name could be non-string)
+      const sender =
+        typeof m.sender_name === "string" ? m.sender_name : "Unknown";
+
+      // Safely handle content, in case it's an object or missing
+      let content = "";
+      if (typeof m.content === "string") {
+        content = m.content;
+      } else if (m.content && typeof m.content.text === "string") {
+        // In some Facebook JSON exports, content may be an object with a 'text' field
+        content = m.content.text;
+      }
+
+      // Also handle array-of-objects or other weird shapes if needed, 
+      // but for now we skip them. 
+      const timestampMs = m.timestamp_ms || 0;
+
       allMessages.push({
-        sender: m.sender_name || "Unknown",
-        content: m.content || "",
-        timestampMs: m.timestamp_ms || 0,
+        sender,
+        content,
+        timestampMs,
       });
     }
   }
 
-  // sort ascending
+  // Sort ascending by timestamp
   allMessages.sort((a, b) => a.timestampMs - b.timestampMs);
 
-  // build lines
-  const lines: string[] = allMessages.map((msg) => {
+  // Format lines
+  const lines = allMessages.map((msg) => {
     const dt = new Date(msg.timestampMs);
-    const formattedDate = formatDate(dt);
-    const sender = (msg.sender || "").replace(/\n/g, " ");
-    const content = (msg.content || "").replace(/\n/g, " ");
-    return `[${formattedDate}] ${sender}: ${content}`;
+    const formatted = formatDate(dt);
+
+    // Ensure we have strings
+    const safeSender = (typeof msg.sender === "string" ? msg.sender : "Unknown")
+      .replace(/\n/g, " ");
+    const safeContent = (typeof msg.content === "string" ? msg.content : "")
+      .replace(/\n/g, " ");
+
+    return `[${formatted}] ${safeSender}: ${safeContent}`;
   });
 
   const finalTxt = lines.join("\n");
-  const localTxtPath = FileSystem.cacheDirectory + `instagram_${folderName}.txt`;
+  const localTxtPath = FileSystem.cacheDirectory + `instagram_${subFolder}.txt`;
+
   await FileSystem.writeAsStringAsync(localTxtPath, finalTxt, {
     encoding: FileSystem.EncodingType.UTF8,
   });
@@ -246,27 +247,23 @@ async function convertInstagramJsonToTxt(zip: JSZip, folderName: string): Promis
 }
 
 function formatDate(dt: Date): string {
-  const dd = pad(dt.getDate(), 2);
-  const mm = pad(dt.getMonth() + 1, 2);
+  const dd = pad(dt.getDate());
+  const mm = pad(dt.getMonth() + 1);
   const yyyy = dt.getFullYear();
-
   let hours = dt.getHours();
-  const minutes = pad(dt.getMinutes(), 2);
-  const seconds = pad(dt.getSeconds(), 2);
-
+  const minutes = pad(dt.getMinutes());
+  const seconds = pad(dt.getSeconds());
   const ampm = hours >= 12 ? "pm" : "am";
   if (hours === 0) {
     hours = 12;
   } else if (hours > 12) {
     hours -= 12;
   }
-
   return `${dd}/${mm}/${yyyy}, ${hours}:${minutes}:${seconds} ${ampm}`;
 }
 
-function pad(num: number, width: number) {
-  const s = num.toString();
-  return s.length >= width ? s : "0".repeat(width - s.length) + s;
+function pad(num: number) {
+  return num < 10 ? `0${num}` : String(num);
 }
 
 const { width } = Dimensions.get("window");
